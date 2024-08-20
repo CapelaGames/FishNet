@@ -7,10 +7,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace FishNet.Object.Synchronizing
 {
-
+    [System.Serializable]
     public class SyncDictionary<TKey, TValue> : SyncBase, IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
     {
 
@@ -76,6 +77,7 @@ namespace FishNet.Object.Synchronizing
         /// <summary>
         /// Copy of objects on client portion when acting as a host.
         /// </summary>
+        [HideInInspector]
         public Dictionary<TKey, TValue> ClientHostCollection;
         /// <summary>
         /// Number of objects in the collection.
@@ -151,6 +153,7 @@ namespace FishNet.Object.Synchronizing
             CollectionCaches<CachedOnChange>.StoreAndDefault(ref _clientOnChanges);
         }
         #endregion
+
         /// <summary>
         /// Gets the collection being used within this SyncList.
         /// </summary>
@@ -169,6 +172,15 @@ namespace FishNet.Object.Synchronizing
         protected override void Initialized()
         {
             base.Initialized();
+
+            //Initialize collections if needed. OdinInspector can cause them to become deinitialized.
+#if ODIN_INSPECTOR
+            if (_initialValues == null) _initialValues = new();
+            if (_changed == null) _changed = new();
+            if (_serverOnChanges == null) _serverOnChanges = new();
+            if (_clientOnChanges == null) _clientOnChanges = new();
+#endif
+
             foreach (KeyValuePair<TKey, TValue> item in Collection)
                 _initialValues[item.Key] = item.Value;
         }
@@ -257,7 +269,7 @@ namespace FishNet.Object.Synchronizing
                 for (int i = 0; i < _changed.Count; i++)
                 {
                     ChangeData change = _changed[i];
-                    writer.WriteByte((byte)change.Operation);
+                    writer.WriteUInt8Unpacked((byte)change.Operation);
 
                     //Clear does not need to write anymore data so it is not included in checks.
                     if (change.Operation == SyncDictionaryOperation.Add ||
@@ -295,7 +307,7 @@ namespace FishNet.Object.Synchronizing
             writer.WriteInt32(Collection.Count);
             foreach (KeyValuePair<TKey, TValue> item in Collection)
             {
-                writer.WriteByte((byte)SyncDictionaryOperation.Add);
+                writer.WriteUInt8Unpacked((byte)SyncDictionaryOperation.Add);
                 writer.Write(item.Key);
                 writer.Write(item.Value);
             }
@@ -329,7 +341,7 @@ namespace FishNet.Object.Synchronizing
             int changes = reader.ReadInt32();
             for (int i = 0; i < changes; i++)
             {
-                SyncDictionaryOperation operation = (SyncDictionaryOperation)reader.ReadByte();
+                SyncDictionaryOperation operation = (SyncDictionaryOperation)reader.ReadUInt8Unpacked();
                 TKey key = default;
                 TValue value = default;
 
@@ -393,9 +405,9 @@ namespace FishNet.Object.Synchronizing
         /// Resets to initialized values.
         /// </summary>
         [APIExclude]
-        internal protected override void ResetState()
+        internal protected override void ResetState(bool asServer)
         {
-            base.ResetState();
+            base.ResetState(asServer);
             _sendAll = false;
             _changed.Clear();
             Collection.Clear();

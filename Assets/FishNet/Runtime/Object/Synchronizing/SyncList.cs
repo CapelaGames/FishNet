@@ -7,12 +7,13 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace FishNet.Object.Synchronizing
 {
-
+    [System.Serializable]
     public class SyncList<T> : SyncBase, IList<T>, IReadOnlyList<T>
-    {
+    { 
         #region Types.
         /// <summary>
         /// Information needed to invoke a callback.
@@ -77,6 +78,7 @@ namespace FishNet.Object.Synchronizing
         /// <summary>
         /// Copy of objects on client portion when acting as a host.
         /// </summary>
+        [HideInInspector]
         public List<T> ClientHostCollection;
         /// <summary>
         /// Number of objects in the collection.
@@ -154,6 +156,15 @@ namespace FishNet.Object.Synchronizing
         protected override void Initialized()
         {
             base.Initialized();
+
+            //Initialize collections if needed. OdinInspector can cause them to become deinitialized.
+#if ODIN_INSPECTOR
+            if (_initialValues == null) _initialValues = new();
+            if (_changed == null) _changed = new();
+            if (_serverOnChanges == null) _serverOnChanges = new();
+            if (_clientOnChanges == null) _clientOnChanges = new();
+#endif
+
             foreach (T item in Collection)
                 _initialValues.Add(item);
         }
@@ -265,7 +276,7 @@ namespace FishNet.Object.Synchronizing
                 for (int i = 0; i < _changed.Count; i++)
                 {
                     ChangeData change = _changed[i];
-                    writer.WriteByte((byte)change.Operation);
+                    writer.WriteUInt8Unpacked((byte)change.Operation);
 
                     //Clear does not need to write anymore data so it is not included in checks.
                     if (change.Operation == SyncListOperation.Add)
@@ -305,7 +316,7 @@ namespace FishNet.Object.Synchronizing
             writer.WriteInt32(count);
             for (int i = 0; i < count; i++)
             {
-                writer.WriteByte((byte)SyncListOperation.Add);
+                writer.WriteUInt8Unpacked((byte)SyncListOperation.Add);
                 writer.Write(Collection[i]);
             }
         }
@@ -339,7 +350,7 @@ namespace FishNet.Object.Synchronizing
 
             for (int i = 0; i < changes; i++)
             {
-                SyncListOperation operation = (SyncListOperation)reader.ReadByte();
+                SyncListOperation operation = (SyncListOperation)reader.ReadUInt8Unpacked();
                 int index = -1;
                 T prev = default;
                 T next = default;
@@ -423,9 +434,9 @@ namespace FishNet.Object.Synchronizing
         /// <summary>
         /// Resets to initialized values.
         /// </summary>
-        internal protected override void ResetState()
+        internal protected override void ResetState(bool asServer)
         {
-            base.ResetState();
+            base.ResetState(asServer);
             _sendAll = false;
             _changed.Clear();
             ClientHostCollection.Clear();
@@ -519,8 +530,10 @@ namespace FishNet.Object.Synchronizing
         public int IndexOf(T item)
         {
             for (int i = 0; i < Collection.Count; ++i)
+            {
                 if (_comparer.Equals(item, Collection[i]))
                     return i;
+            }
             return -1;
         }
 
@@ -532,8 +545,10 @@ namespace FishNet.Object.Synchronizing
         public int FindIndex(Predicate<T> match)
         {
             for (int i = 0; i < Collection.Count; ++i)
+            {
                 if (match(Collection[i]))
                     return i;
+            }
             return -1;
         }
 
@@ -557,8 +572,10 @@ namespace FishNet.Object.Synchronizing
         {
             List<T> results = new List<T>();
             for (int i = 0; i < Collection.Count; ++i)
+            {
                 if (match(Collection[i]))
                     results.Add(Collection[i]);
+            }
             return results;
         }
 
@@ -647,9 +664,11 @@ namespace FishNet.Object.Synchronizing
         {
             List<T> toRemove = new List<T>();
             for (int i = 0; i < Collection.Count; ++i)
+            { 
                 if (match(Collection[i]))
                     toRemove.Add(Collection[i]);
-
+            }
+            
             foreach (T entry in toRemove)
                 Remove(entry);
 
@@ -675,12 +694,8 @@ namespace FishNet.Object.Synchronizing
         {
             if (!base.IsInitialized)
                 return;
-
-            if (base.NetworkManager != null && !base.NetworkBehaviour.IsServerStarted)
-            {
-                base.NetworkManager.LogWarning($"Cannot complete operation as server when server is not active.");
+            if (!base.CanNetworkSetValues(true))
                 return;
-            }
 
             if (base.Dirty())
                 _sendAll = true;

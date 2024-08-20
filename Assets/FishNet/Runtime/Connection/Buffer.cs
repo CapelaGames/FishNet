@@ -75,7 +75,7 @@ namespace FishNet.Connection
             if (!HasData)
             {
                 int pos = 0;
-                WriterExtensions.WriteUInt32(Data, tick, ref pos);
+                Writer.WriteUInt32Unpacked(Data, tick, ref pos);
             }
 
             Buffer.BlockCopy(segment.Array, segment.Offset, Data, Length, segment.Count);
@@ -147,7 +147,7 @@ namespace FishNet.Connection
              * Modify reserve after making sendLast bundle
              * so that the wrong reserve is not passed into
              * the sendLast bundle. */
-            reserve += TransportManager.TICK_BYTES;
+            reserve += TransportManager.UNPACKED_TICK_LENGTH;
             _reserve = reserve;
             //Add buffer requires the right reserve so call after setting.
             AddBuffer();
